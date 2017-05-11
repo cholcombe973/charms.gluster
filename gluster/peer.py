@@ -1,26 +1,27 @@
 from enum import Enum
-import re
-from lib import GlusterError, process_output, resolve_to_ip, run_command
-import uuid
+import xml.etree.ElementTree as etree
+from typing import List
+
+from .lib import GlusterError, run_command
 
 """
 #[test]
 fn test_parse_peer_status()
     test_result =
-        vec![Peer
-                 uuid: Uuid::parse_str("afbd338e-881b-4557-8764-52e259885ca3").unwrap(),
+        [Peer
+                 uuid: "afbd338e-881b-4557-8764-52e259885ca3",
                  hostname: "10.0.3.207",
-                 status: State::PeerInCluster,
+                 status: State.PeerInCluster,
              ,
              Peer
-                 uuid: Uuid::parse_str("fa3b031a-c4ef-43c5-892d-4b909bc5cd5d").unwrap(),
+                 uuid: "fa3b031a-c4ef-43c5-892d-4b909bc5cd5d",
                  hostname: "10.0.3.208",
-                 status: State::PeerInCluster,
+                 status: State.PeerInCluster,
              ,
              Peer
-                 uuid: Uuid::parse_str("5f45e89a-23c1-41dd-b0cd-fd9cf37f1520").unwrap(),
+                 uuid: "5f45e89a-23c1-41dd-b0cd-fd9cf37f1520",
                  hostname: "10.0.3.209",
-                 status: State::PeerInCluster,
+                 status: State.PeerInCluster,
              ]
     test_line = r#"Number of Peers: 3 Hostname: 10.0.3.207
 Uuid: afbd338e-881b-4557-8764-52e259885ca3 State: Peer in Cluster (Connected)
@@ -31,13 +32,14 @@ Uuid: 5f45e89a-23c1-41dd-b0cd-fd9cf37f1520 State: Peer in Cluster (Connected)"#
 
     # Expect a 3 peer result
     result = parse_peer_status(test_line)
-    println!("Result: :?", result)
+    println!("Result: {}".format(result))
     assert!(result.is_ok())
 
-    result_unwrapped = result.unwrap()
+    result_unwrapped = result
     assert_eq!(test_result, result_unwrapped)
 
 """
+
 
 # A enum representing the possible States that a Peer can be in
 class State(Enum):
@@ -55,11 +57,45 @@ class State(Enum):
     ConnectedToPeer = "connected to peer"
     PeerIsConnectedAndAccepted = "peer is connected and accepted"
     InvalidState = "invalid state"
-    def __str__(self):
+
+    def __str__(self) -> str:
         return "{}".format(self.value)
 
+    @staticmethod
+    def from_str(s: str):
+        s = s.lower()
+        if s == 'connected':
+            return State.Connected
+        elif s == 'disconnected':
+            return State.Disconnected
+        elif s == 'establishing connection':
+            return State.EstablishingConnection
+        elif s == 'probe sent to peer':
+            return State.ProbeSentToPeer
+        elif s == 'probe received from peer':
+            return State.ProbeReceivedFromPeer
+        elif s == 'peer in cluster':
+            return State.PeerInCluster
+        elif s == 'accepted peer in cluster':
+            return State.AcceptedPeerRequest
+        elif s == "sent and received peer request":
+            return State.SentAndReceivedPeerRequest
+        elif s == "peer rejected":
+            return State.PeerRejected
+        elif s == "peer detach in progress":
+            return State.PeerDetachInProgress
+        elif s == "connected to peer":
+            return State.ConnectedToPeer
+        elif s == "peer is connected and accepted":
+            return State.PeerIsConnectedAndAccepted
+        elif s == "invalid state":
+            return State.InvalidState
+        else:
+            return None
+
+
 class Peer(object):
-    def __init__(self, uuid, hostname, status):
+    def __init__(self, uuid, hostname: str, status: State):
         """
         A Gluster Peer.  A Peer is roughly equivalent to a server in Gluster.
         :param uuid: Unique identifier of this peer
@@ -70,99 +106,84 @@ class Peer(object):
         self.hostname = hostname
         self.status = status
 
-   def cmp(self, other: Peer):
-        self.uuid.cmp(other.uuid)
-   def partial_cmp(self, other: Peer):
-        Some(self.cmp(other))
-   def fmt(self):
-       return "UUID: {}  Hostname: {} Status: {}".format(self.uuid.hyphenated(),self.hostname, self.status)
+    def __eq__(self, other):
+        return self.uuid == other.uuid
 
-def get_peer(hostname): # -> Result<Peer, GlusterError>
+    def __str__(self):
+        return "UUID: {}  Hostname: {} Status: {}".format(
+            self.uuid.hyphenated(),
+            self.hostname,
+            self.status)
+
+
+def get_peer(hostname: str):
     """
     This will query the Gluster peer list and return a Peer class for the peer
-    # Failures
-    Returns GlusterError if the peer could not be found
+    :param hostname: String.  Name of the peer to get
+    :return Peer or None in case of not found
     """
+    peers = peer_list()
 
-    """
-    if cfg!(test)
-        return Ok(Peer
-            uuid: Uuid::parse_str("78f68270-201a-4d8a-bad3-7cded6e6b7d8").unwrap(),
-            hostname: "test_ip",
-            status: State::Connected,
-        )
-    """
-    peer_list = peer_list()
-
-    for peer in peer_list:
-        if peer.hostname == hostname
-            log("Found peer: {}".format(peer))
+    for peer in peers:
+        if peer.hostname == hostname:
             return peer
-    raise GlusterError("Unable to find peer by hostname: {}".format(hostname))
+    return None
 
 
-def parse_peer_status(line): # -> Result<Vec<Peer>, GlusterError>
+def parse_peer_status(output_xml: str) -> List[Peer]:
     """
-        Take a peer status line and parse it into Peer objects
-        line: String.  The peer status CLI output
-        :return: List of Peer objects
+    Take a peer status line and parse it into Peer objects
+    :param output_xml: String.  THe peer status --xml output
+    :return: List of Peer objects
     """
-     peers = []
-    regex_str = re.compile("Hostname:\s+(?P<hostname>[a-zA-Z0-9.]+)\s+Uuid:\s+(?P<uuid>\w+-\w+-\w+-\w+-\w+)\s+State:\s+(?P<state_detail>[a-zA-z ]+)\s+\((?P<state>\w+)\)")
-    peer_regex = regex_str.replace("\n", "")
-    for cap in peer_regex.captures_iter(line):
-        hostname = cap.name("hostname")
-            .ok_or(GlusterError(format!("Invalid hostname for peer: ", line)))
+    peers = []
+    tree = etree.fromstring(output_xml)
 
-        uuid = cap.name("uuid")
-            .ok_or(GlusterError(format!("Invalid uuid for peer: ", line)))
-        uuid_parsed = Uuid::parse_str(uuid)
-        state_details = cap.name("state_detail")
-            .ok_or(GlusterError(format!("Invalid state for peer: ", line)))
+    return_code = 0
+    err_string = ""
 
-        # Translate back into an IP address if needed
-        check_for_ip = hostname.parse::<IpAddr>()
+    for child in tree:
+        if child.tag == 'opRet':
+            return_code = child.text
+        elif child.tag == 'opErrstr':
+            err_string = child.text
 
-        if check_for_ip.is_err():
-            # It's a hostname so lets resolve it
-            match resolve_to_ip(hostname)
-                Ok(ip_addr) =>
-                    peers.push(Peer(
-                        uuid=uuid_parsed,
-                        hostname=ip_addr,
-                        status=State::new(state_details))
-                    continue
-                Err(e) =>
-                    raise GlusterError(e)
-         else:
-            # It's an IP address so lets use it
-            peers.push(Peer(
-                uuid=uuid_parsed,
-                hostname=hostname,
-                status=State::new(state_details))
-    return Ok(peers)
+    if return_code != 0:
+        raise GlusterError(message=err_string)
+
+    peer_tree = tree.find('peerStatus')
+    for status in peer_tree:
+        uuid = None
+        hostname = None
+        state = None
+        if status.tag == 'peer':
+            for peer_info in status:
+                if peer_info.tag == 'uuid':
+                    uuid = peer_info.text
+                elif peer_info.tag == 'hostname':
+                    hostname = peer_info.text
+                elif peer_info.tag == 'stateStr':
+                    state = State.from_str(peer_info.text)
+            peers.append(Peer(uuid=uuid, hostname=hostname, status=state))
+
+    return peers
 
 
-def peer_status(): #  -> Result<Vec<Peer>, GlusterError>
+def peer_status() -> List[Peer]:
     """
-    # Runs gluster peer status and returns a Vec<Peer> representing all the peers
-    # in the cluster
-    # # Failures
-    # Returns GlusterError if the command failed to run
+    Runs gluster peer status and returns a Vec<Peer> representing all the 
+    peers in the cluster
+    Returns GlusterError if the command failed to run
+    :return: List of Peers
     """
-    arg_list = ["peer", "status"]
+    arg_list = ["peer", "status", "--xml"]
 
     output = run_command("gluster", arg_list, True, False)
     output_str = output.stdout.decode('utf8')
-    # Number of Peers: 1
-    # Hostname: 10.0.3.207
-    # Uuid: afbd338e-881b-4557-8764-52e259885ca3
-    # State: Peer in Cluster (Connected)
-    #
     return parse_peer_status(output_str)
 
 
-def peer_list():
+def peer_list() -> List[Peer]:
     """
     List all peers including localhost
     Runs gluster pool list and returns a Vec<Peer> representing all the peers
@@ -172,57 +193,70 @@ def peer_list():
     # Failures
     Returns GlusterError if the command failed to run
     """
-    peers = []
-    arg_list = ["pool", "list"]
+    arg_list = ["pool", "list", "--xml"]
 
     output = run_command("gluster", arg_list, True, False)
-    output_str = output.stdout.decode('utf8')
+    output_xml = output.stdout.decode('utf8')
 
-    for line in output_str.lines():
-        if line.contains("State"):
-            continue
-         else:
-            v: Vec<str> = line.split('\t').collect()
-            uuid = (Uuid::parse_str(v[0]))
-             hostname = v[1].trim()
+    peers = []
+    tree = etree.fromstring(output_xml)
 
-            # Translate back into an IP address if needed
-            check_for_ip = hostname.parse::<IpAddr>()
+    return_code = 0
+    err_string = ""
 
-            if check_for_ip.is_err():
-                # It's a hostname so lets resolve it
-                hostname = match resolve_to_ip(hostname)
-                    Ok(ip_addr) => ip_addr,
-                    Err(e) =>
-                        raise Err(GlusterError(e))
-            log("hostname from peer list command is :?", hostname)
-            peers.push(Peer(uuid=uuid, hostname=hostname, status=State::new(v[2]))
-    return Ok(peers)
+    for child in tree:
+        if child.tag == 'opRet':
+            return_code = child.text
+        elif child.tag == 'opErrstr':
+            err_string = child.text
+
+    if return_code != 0:
+        raise GlusterError(message=err_string)
+
+    peer_tree = tree.find('peerStatus')
+    for status in peer_tree:
+        uuid = None
+        hostname = None
+        state = None
+        if status.tag == 'peer':
+            for peer_info in status:
+                if peer_info.tag == 'uuid':
+                    uuid = peer_info.text
+                elif peer_info.tag == 'hostname':
+                    hostname = peer_info.text
+                elif peer_info.tag == 'stateStr':
+                    state = State.from_str(peer_info.text)
+            peers.append(Peer(uuid=uuid, hostname=hostname, status=state))
+
+    return peers
 
 
-def peer_probe(hostname):
-    # Probe a peer and prevent double probing
-    # Adds a new peer to the cluster by hostname or ip address
-    # # Failures
-    # Returns GlusterError if the command failed to run
+def peer_probe(hostname: str) -> (int, str):
+    """
+    Probe a peer and prevent double probing
+    Adds a new peer to the cluster by hostname or ip address
+    :param hostname: String.  Add a host to the cluster
+    :return:
+    """
     current_peers = peer_list()
     for peer in current_peers:
-        if peer.hostname == *hostname:
+        if peer.hostname == hostname:
             # Bail instead of double probing
-            # raise Err(format!("hostname:  is already part of the cluster", hostname))
-            return 0 #Does it make sense to say this is ok?
+            return 0  # Does it make sense to say this is ok?
 
     arg_list = ["peer", "probe", hostname]
-    return process_output(run_command("gluster", arg_list, True, False))
+    return run_command("gluster", arg_list, True, False)
 
 
-def peer_remove(hostname, force):
-    # Removes a peer from the cluster by hostname or ip address
-    # # Failures
-    # Returns GlusterError if the command failed to run
+def peer_remove(hostname: str, force: bool) -> (int, str):
+    """
+    Removes a peer from the cluster by hostname or ip address
+    :param hostname: String.  Hostname to remove from the cluster
+    :param force: bool.  Should the command be forced
+    :return:
+    """
     arg_list = ["peer", "detach", hostname]
     if force:
-        arg_list.push("force")
+        arg_list.append("force")
 
-    return process_output(run_command("gluster", arg_list, True, False))
-
+    return run_command("gluster", arg_list, True, False)
