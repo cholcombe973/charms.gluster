@@ -1,20 +1,26 @@
-#import std::fs::read_dir
-#import std::path::Path
+# import std::fs::read_dir
+# import std::path::Path
 
-#import volume::Brick
-#import super::GlusterError
+# import volume::Brick
+# import super::GlusterError
 
-def get_self_heal_count(brick: Brick)# -> Result<usize, GlusterError>
-"""
-    Find the self heal count for a given brick
-"""
+import os
+from gluster.volume import Brick
+
+
+def get_self_heal_count(brick: Brick) -> int:
+    """Find the self heal count for a given brick.
+
+    :param brick: the brick to probe for the self heal count.
+    :return int: the number of files that need healing
+    """
     brick_path = "{}/.glusterfs/indices/xattrop".format(brick.path)
-    heal_path = Path::new(&brick_path)
 
-    # Count all files that don't start with xattrop.  Those are gfid's that need healing
-    let entry_count = read_dir(heal_path)
-        ?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| !entry.file_name().to_string_lossy().starts_with("xattrop"))
-        .count()
-    return entry_count
+    # The gfids which need healing are those files which do not start
+    # with 'xattrop'.
+    count = 0
+    for f in os.listdir(brick_path):
+        if not f.startswith('xattrop'):
+            count += 1
+
+    return count

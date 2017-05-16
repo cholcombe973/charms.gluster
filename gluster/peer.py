@@ -2,43 +2,7 @@ from enum import Enum
 import xml.etree.ElementTree as etree
 from typing import List
 
-from .lib import GlusterError, run_command
-
-"""
-#[test]
-fn test_parse_peer_status()
-    test_result =
-        [Peer
-                 uuid: "afbd338e-881b-4557-8764-52e259885ca3",
-                 hostname: "10.0.3.207",
-                 status: State.PeerInCluster,
-             ,
-             Peer
-                 uuid: "fa3b031a-c4ef-43c5-892d-4b909bc5cd5d",
-                 hostname: "10.0.3.208",
-                 status: State.PeerInCluster,
-             ,
-             Peer
-                 uuid: "5f45e89a-23c1-41dd-b0cd-fd9cf37f1520",
-                 hostname: "10.0.3.209",
-                 status: State.PeerInCluster,
-             ]
-    test_line = r#"Number of Peers: 3 Hostname: 10.0.3.207
-Uuid: afbd338e-881b-4557-8764-52e259885ca3 State: Peer in Cluster (Connected)
-Hostname: 10.0.3.208 Uuid: fa3b031a-c4ef-43c5-892d-4b909bc5cd5d
-State: Peer in Cluster (Connected) Hostname: 10.0.3.209
-Uuid: 5f45e89a-23c1-41dd-b0cd-fd9cf37f1520 State: Peer in Cluster (Connected)"#
-
-
-    # Expect a 3 peer result
-    result = parse_peer_status(test_line)
-    println!("Result: {}".format(result))
-    assert!(result.is_ok())
-
-    result_unwrapped = result
-    assert_eq!(test_result, result_unwrapped)
-
-"""
+from gluster.lib import GlusterError, run_command
 
 
 # A enum representing the possible States that a Peer can be in
@@ -171,7 +135,7 @@ def parse_peer_status(output_xml: str) -> List[Peer]:
 
 def peer_status() -> List[Peer]:
     """
-    Runs gluster peer status and returns a Vec<Peer> representing all the 
+    Runs gluster peer status and returns a Vec<Peer> representing all the
     peers in the cluster
     Returns GlusterError if the command failed to run
     :return: List of Peers

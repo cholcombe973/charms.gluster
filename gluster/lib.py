@@ -22,8 +22,6 @@ from typing import List
 
 import subprocess
 
-from .volume import Brick, volume_info
-
 
 class SelfHealAlgorithm(Enum):
     Full = "full"
@@ -405,7 +403,8 @@ class GlusterOption(object):
                                  value=policy)
         elif s == "client-grace-timeout":
             i = int(value)
-            return GlusterOption(name=GlusterOption.ClientGraceTimeout, value=i)
+            return GlusterOption(name=GlusterOption.ClientGraceTimeout,
+                                 value=i)
         elif s == "cluster-self-heal-window-size":
             i = int(value)
             return GlusterOption(name=GlusterOption.ClusterSelfHealWindowSize,
@@ -416,7 +415,8 @@ class GlusterOption(object):
                 name=GlusterOption.ClusterDataSelfHealAlgorithm, value=s)
         elif s == "cluster-min-free-disk":
             i = int(value)
-            return GlusterOption(name=GlusterOption.ClusterMinFreeDisk, value=i)
+            return GlusterOption(name=GlusterOption.ClusterMinFreeDisk,
+                                 value=i)
         elif s == "cluster-stripe-block-size":
             i = int(value)
             return GlusterOption(name=GlusterOption.ClusterStripeBlockSize,
@@ -449,8 +449,9 @@ class GlusterOption(object):
                 name=GlusterOption.DiagnosticsStatsDumpInterval, value=i)
         elif s == "diagnostics.fop-sample-buf-size":
             i = int(value)
-            return GlusterOption(name=GlusterOption.DiagnosticsFopSampleBufSize,
-                                 value=i)
+            return GlusterOption(
+                name=GlusterOption.DiagnosticsFopSampleBufSize,
+                value=i)
         elif s == "diagnostics.fop-sample-interval":
             i = int(value)
             return GlusterOption(
@@ -531,12 +532,14 @@ class GlusterOption(object):
                                  value=t)
         elif s == "performance-cache-max-file-size":
             i = int(value)
-            return GlusterOption(name=GlusterOption.PerformanceCacheMaxFileSize,
-                                 value=i)
+            return GlusterOption(
+                name=GlusterOption.PerformanceCacheMaxFileSize,
+                value=i)
         elif s == "performance-cache-min-file-size":
             i = int(value)
-            return GlusterOption(name=GlusterOption.PerformanceCacheMinFileSize,
-                                 value=i)
+            return GlusterOption(
+                name=GlusterOption.PerformanceCacheMinFileSize,
+                value=i)
         elif s == "performance-cache-refresh-timeout":
             i = int(value)
             return GlusterOption(
@@ -566,7 +569,8 @@ class GlusterOption(object):
                                  value=t)
         elif s == "server-grace-timeout":
             i = int(value)
-            return GlusterOption(name=GlusterOption.ServerGraceTimeout, value=i)
+            return GlusterOption(name=GlusterOption.ServerGraceTimeout,
+                                 value=i)
         elif s == "server-statedump-path":
             return GlusterOption(name=GlusterOption.ServerStatedumpPath,
                                  value=value)
@@ -668,7 +672,7 @@ def resolve_to_ip(address: str) -> ip_address:
     """
     if address == "localhost":
         local_ip = get_local_ip()
-        # log("hostname is localhost.  Resolving to local ip ".format(local_ip))
+        # log("hostname is localhost. Resolving to local ip ".format(local_ip))
         return local_ip
 
     arg_list = ["+short", address.strip()]
@@ -717,18 +721,3 @@ def translate_to_bytes(value: str) -> float:
         return float(value.rstrip("BYTES"))
     else:
         raise ValueError
-
-
-def get_local_bricks(volume: str) -> List[Brick]:
-    """
-        Return all bricks that are being served locally in the volume
-        volume: Name of the volume to get local bricks for
-    """
-    vol_info = volume_info(volume)
-    local_ip = get_local_ip()
-    local_brick_list = []
-    for volume in vol_info:
-        for brick in volume.bricks:
-            if brick.peer.hostname == local_ip:
-                local_brick_list.append(brick)
-    return local_brick_list

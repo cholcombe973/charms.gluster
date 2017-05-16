@@ -4,13 +4,37 @@ from typing import Dict, List
 import uuid
 import xml.etree.ElementTree as etree
 
-from .peer import get_peer, Peer
-from .lib import BitrotOption, GlusterError, GlusterOption, \
-    resolve_to_ip, \
-    run_command
+from gluster.peer import get_peer
+from gluster.peer import Peer
+from gluster.lib import BitrotOption
+from gluster.lib import GlusterError
+from gluster.lib import GlusterOption
+from gluster.lib import resolve_to_ip
+from gluster.lib import run_command
 
 
-class Quota:
+# A Gluster Brick consists of a Peer and a path to the mount point
+class Brick(object):
+    def __init__(self, uuid: uuid, peer: Peer, path, is_arbiter: bool):
+        """
+        A Gluster brick
+        :param uuid: uuid.  Uuid of the host this brick is located on
+        :param peer: Peer.  Optional information about the Peer this brick
+          is located on.
+        :param path: String.  The filesystem path the brick is located at
+        :param is_arbiter:  bool.  Whether this brick is an arbiter or not
+        """
+        self.uuid = uuid
+        self.peer = peer
+        self.path = path
+        self.is_arbiter = is_arbiter
+
+    # Returns a String representation of the selected enum variant.
+    def __str__(self):
+        return "{}:{}".format(self.peer.hostname, self.path)
+
+
+class Quota(object):
     def __init__(self, path: str, hard_limit: int, soft_limit: int,
                  soft_limit_percentage: int,
                  used: int, avail: int, soft_limit_exceeded: bool,
@@ -37,7 +61,7 @@ class Quota:
         self.hard_limit_exceeded = hard_limit_exceeded
 
 
-class BrickStatus:
+class BrickStatus(object):
     def __init__(self, brick: Brick, tcp_port: int, rdma_port: int,
                  online: bool, pid: int):
         """
@@ -63,27 +87,6 @@ class BrickStatus:
                                          self.rdma_port,
                                          self.online,
                                          self.pid)
-
-
-# A Gluster Brick consists of a Peer and a path to the mount point
-class Brick:
-    def __init__(self, uuid: uuid, peer: Peer, path, is_arbiter: bool):
-        """
-        A Gluster brick
-        :param uuid: uuid.  Uuid of the host this brick is located on
-        :param peer: Peer.  Optional information about the Peer this brick
-          is located on.
-        :param path: String.  The filesystem path the brick is located at
-        :param is_arbiter:  bool.  Whether this brick is an arbiter or not
-        """
-        self.uuid = uuid
-        self.peer = peer
-        self.path = path
-        self.is_arbiter = is_arbiter
-
-    # Returns a String representation of the selected enum variant.
-    def __str__(self):
-        return "{}:{}".format(self.peer.hostname, self.path)
 
 
 # An enum to select the transport method Gluster should import for the Volume
@@ -185,26 +188,25 @@ class VolumeType(Enum):
         else:
             return None
 
-    """
-    #[test]
-    def test_xml_parser()
-        import std::fs::File
-        import std::io::Read
-        input =
-            buff = String::new()
-            f = File::open("tests/replicated-vol.xml")
-            f.read_to_string(buff)
-            buff
 
-        volume = deserialize(input.as_bytes())
-        println!("Volume: :?", volume)
-    """
+#     #[test]
+#     def test_xml_parser()
+#         import std::fs::File
+#         import std::io::Read
+#         input =
+#             buff = String::new()
+#             f = File::open("tests/replicated-vol.xml")
+#             f.read_to_string(buff)
+#             buff
+#
+#         volume = deserialize(input.as_bytes())
+#         println!("Volume: :?", volume)
 
 
 # A volume is a logical collection of bricks. Most of the gluster management
 # operations
 # happen on the volume.
-class Volume:
+class Volume(object):
     def __init__(self, name: str, vol_type: VolumeType, vol_id: uuid,
                  status: str,
                  snapshot_count: int,
@@ -280,53 +282,51 @@ def volume_list() -> List[str]:
     return volume_list
 
 
-"""
-    #[test]
-    def test_parse_volume_info():
-        test_data = r#"
-
-    Volume Name: test
-    Type: Replicate
-    Volume ID: cae6868d-b080-4ea3-927b-93b5f1e3fe69
-    Status: Started
-    Number of Bricks: 1 x 2 = 2
-    Transport-type: tcp
-    Bricks:
-    Brick1: 172.31.41.135:/mnt/xvdf
-    Options Reconfigured:
-    features.inode-quota: off
-    features.quota: off
-    transport.address-family: inet
-    performance.readdir-ahead: on
-    nfs.disable: on
-    "#
-        result = parse_volume_info("test", test_data)
-        options_map: BTreeMap<String, String> = BTreeMap::new()
-        options_map.insert("features.inode-quota", "off")
-        options_map.insert("features.quota", "off")
-        options_map.insert("transport.address-family", "inet")
-        options_map.insert("performance.readdir-ahead", "on")
-        options_map.insert("nfs.disable", "on")
-
-        vol_info = Volume
-            name: "test",
-            vol_type: VolumeType::Replicate,
-            id: "cae6868d-b080-4ea3-927b-93b5f1e3fe69",
-            status: "Started",
-            transport: Transport::Tcp,
-            bricks: vec![Brick
-                             peer: Peer
-                                 uuid: "78f68270-201a-4d8a-bad3-7cded6e6b7d8",
-                                 hostname: "test_ip",
-                                 status: State::Connected,
-                             ,
-                             path: PathBuf::from("/mnt/xvdf"),
-                         ],
-            options: options_map,
-
-        println!("vol_info: :?", vol_info)
-        assert_eq!(vol_info, result)
-    """
+#     #[test]
+#     def test_parse_volume_info():
+#         test_data = r#"
+#
+#     Volume Name: test
+#     Type: Replicate
+#     Volume ID: cae6868d-b080-4ea3-927b-93b5f1e3fe69
+#     Status: Started
+#     Number of Bricks: 1 x 2 = 2
+#     Transport-type: tcp
+#     Bricks:
+#     Brick1: 172.31.41.135:/mnt/xvdf
+#     Options Reconfigured:
+#     features.inode-quota: off
+#     features.quota: off
+#     transport.address-family: inet
+#     performance.readdir-ahead: on
+#     nfs.disable: on
+#     "#
+#         result = parse_volume_info("test", test_data)
+#         options_map: BTreeMap<String, String> = BTreeMap::new()
+#         options_map.insert("features.inode-quota", "off")
+#         options_map.insert("features.quota", "off")
+#         options_map.insert("transport.address-family", "inet")
+#         options_map.insert("performance.readdir-ahead", "on")
+#         options_map.insert("nfs.disable", "on")
+#
+#         vol_info = Volume
+#             name: "test",
+#             vol_type: VolumeType::Replicate,
+#             id: "cae6868d-b080-4ea3-927b-93b5f1e3fe69",
+#             status: "Started",
+#             transport: Transport::Tcp,
+#             bricks: vec![Brick
+#                              peer: Peer
+#                              uuid: "78f68270-201a-4d8a-bad3-7cded6e6b7d8",
+#                              hostname: "test_ip",
+#                              status: State::Connected,
+#                              ,
+#                              path: PathBuf::from("/mnt/xvdf"),
+#                          ],
+#             options: options_map,
+#
+#         println!("vol_info: :?", vol_info)
+#         assert_eq!(vol_info, result)
 
 
 def parse_volume_info(volume_xml: str) -> List[Volume]:
@@ -463,98 +463,95 @@ def volume_info(volume: str) -> List[Volume]:
     return parse_volume_info(output)
 
 
-"""
-# Returns a u64 representing the bytes importd on the volume.
-# Note: This imports my brand new RPC library.  Some bugs may exist so import
-# caution.  This does not
-# shell out and therefore should be significantly faster.  It also suffers
-# far less hang conditions
-# than the CLI version.
-# # Failures
-# Will return GlusterError if the RPC fails
- def get_quota_usage(volume: str) -> Result<u64, GlusterError>
-    xid = 1 #Transaction ID number.
-    prog = rpc::GLUSTER_QUOTA_PROGRAM_NUMBER
-    vers = 1 #RPC version == 1
-
-    verf = rpc::GlusterAuth
-        flavor: rpc::AuthFlavor::AuthNull,
-        stuff: vec![0, 0, 0, 0],
-
-    verf_bytes = (verf.pack())
-
-    creds = rpc::GlusterCred
-        flavor: rpc::GLUSTER_V2_CRED_FLAVOR,
-        pid: 0,
-        uid: 0,
-        gid: 0,
-        groups: "",
-        lock_owner: vec![0, 0, 0, 0],
-
-    cred_bytes = (creds.pack())
-
-    call_bytes = (rpc::pack_quota_callheader(xid,
-                                        prog,
-                                        vers,
-                                        rpc::GlusterAggregatorCommand::GlusterAggregatorGetlimit,
-                                        cred_bytes,
-                                        verf_bytes))
-
-    dict: HashMap<String, Vec<u8>> = HashMap::with_capacity(4)
-
-    # TODO: Make a Gluster wd RPC call and parse this from the quota.conf file
-    # This is crap
-    gfid = "00000000-0000-0000-0000-000000000001".into_bytes()
-    gfid.append(0) #Null Terminate
-    name = volume.into_bytes()
-    name.append(0) #Null Terminate
-    version = "1.20000005".into_bytes()
-    version.append(0) #Null Terminate
-    #No idea what vol_type == 5 means to Gluster
-    vol_type = "5".into_bytes()
-    vol_type.append(0) #Null Terminate
-
-    dict.insert("gfid", gfid)
-    dict.insert("type", vol_type)
-    dict.insert("volume-uuid", name)
-    dict.insert("version", version)
-    quota_request = rpc::GlusterCliRequest  dict: dict
-    quota_bytes = (quota_request.pack())
-    for byte in quota_bytes
-        call_bytes.append(byte)
-
-
-    # Ok.. we need to hunt down the quota socket file ..crap..
-    addr = Path::new("/var/run/gluster/quotad.socket")
-    sock = (UnixStream::connect(addr))
-
-    send_bytes = (rpc::sendrecord(sock, call_bytes))
-    reply_bytes = (rpc::recvrecord(sock))
-
-    cursor = Cursor::new(reply_bytes[..])
-
-    # Check for success
-    (rpc::unpack_replyheader(cursor))
-
-    cli_response = (rpc::GlusterCliResponse::unpack(cursor))
-    # The raw bytes
-    quota_size_bytes = match cli_response.dict.get_mut("trusted.glusterfs.quota.size")
-        Some(s) => s,
-        None =>
-            return Err(GlusterError::new("trusted.glusterfs.quota.size was not returned from #
-                                          quotad"
-                ))
-
-
-    # Gluster is crazy and encodes a ton of data in this vector.  We're just going
-    # to
-    # read the first value and throw away the rest.  Why they didn't just import a
-    # class and
-    # XDR is beyond me
-    size_cursor = Cursor::new(quota_size_bytes[..])
-    usage = (size_cursor.read_u64::<BigEndian>())
-    return Ok(usage)
-"""
+# # Returns a u64 representing the bytes importd on the volume.
+# # Note: This imports my brand new RPC library.  Some bugs may exist so import
+# # caution.  This does not
+# # shell out and therefore should be significantly faster.  It also suffers
+# # far less hang conditions
+# # than the CLI version.
+# # # Failures
+# # Will return GlusterError if the RPC fails
+#  def get_quota_usage(volume: str) -> Result<u64, GlusterError>
+#     xid = 1 #Transaction ID number.
+#     prog = rpc::GLUSTER_QUOTA_PROGRAM_NUMBER
+#     vers = 1 #RPC version == 1
+#
+#     verf = rpc::GlusterAuth
+#         flavor: rpc::AuthFlavor::AuthNull,
+#         stuff: vec![0, 0, 0, 0],
+#
+#     verf_bytes = (verf.pack())
+#
+#     creds = rpc::GlusterCred
+#         flavor: rpc::GLUSTER_V2_CRED_FLAVOR,
+#         pid: 0,
+#         uid: 0,
+#         gid: 0,
+#         groups: "",
+#         lock_owner: vec![0, 0, 0, 0],
+#
+#     cred_bytes = (creds.pack())
+#
+#     call_bytes = (rpc::pack_quota_callheader(xid,
+#                                         prog,
+#                                         vers,
+#                     rpc::GlusterAggregatorCommand::GlusterAggregatorGetlimit,
+#                                         cred_bytes,
+#                                         verf_bytes))
+#
+#     dict: HashMap<String, Vec<u8>> = HashMap::with_capacity(4)
+#
+#     # TODO: Make a Gluster wd RPC call and parse this from the quota.conf
+#     # file This is crap
+#     gfid = "00000000-0000-0000-0000-000000000001".into_bytes()
+#     gfid.append(0) #Null Terminate
+#     name = volume.into_bytes()
+#     name.append(0) #Null Terminate
+#     version = "1.20000005".into_bytes()
+#     version.append(0) #Null Terminate
+#     #No idea what vol_type == 5 means to Gluster
+#     vol_type = "5".into_bytes()
+#     vol_type.append(0) #Null Terminate
+#
+#     dict.insert("gfid", gfid)
+#     dict.insert("type", vol_type)
+#     dict.insert("volume-uuid", name)
+#     dict.insert("version", version)
+#     quota_request = rpc::GlusterCliRequest  dict: dict
+#     quota_bytes = (quota_request.pack())
+#     for byte in quota_bytes
+#         call_bytes.append(byte)
+#
+#
+#     # Ok.. we need to hunt down the quota socket file ..crap..
+#     addr = Path::new("/var/run/gluster/quotad.socket")
+#     sock = (UnixStream::connect(addr))
+#
+#     send_bytes = (rpc::sendrecord(sock, call_bytes))
+#     reply_bytes = (rpc::recvrecord(sock))
+#
+#     cursor = Cursor::new(reply_bytes[..])
+#
+#     # Check for success
+#     (rpc::unpack_replyheader(cursor))
+#
+#     cli_response = (rpc::GlusterCliResponse::unpack(cursor))
+#     # The raw bytes
+#     quota_size_bytes =
+#         match cli_response.dict.get_mut("trusted.glusterfs.quota.size")
+#         Some(s) => s,
+#         None =>
+#             return Err(GlusterError::new("trusted.glusterfs.quota.size was
+#                                           not returned from # quotad"
+#                 ))
+#
+#
+#     # Gluster is crazy and encodes a ton of data in this vector. We're just
+#     # going to read the first value and throw away the rest. Why they didn't
+#     # just import a class and XDR is beyond me
+#     size_cursor = Cursor::new(quota_size_bytes[..])
+#     usage = (size_cursor.read_u64::<BigEndian>())
+#     return Ok(usage)
 
 
 def quota_list(volume: str) -> List[Quota]:
@@ -578,23 +575,24 @@ def quota_list(volume: str) -> List[Quota]:
     return quota_list
 
 
-"""
-#[test]
-def test_quota_list()
-    test_data = r#"
-    Path Hard-limit  Soft-limit      Used  Available  Soft-limit exceeded? Hard-limit exceeded?
-----------------------------------------------------------------------------------------------
-/ 1.0KB  80%(819Bytes)   0Bytes   1.0KB              No                   No
-"#
-    result = parse_quota_list("test", test_data)
-    quotas = vec![Quota
-                          path: PathBuf::from("/"),
-                          limit: 1024,
-                          importd: 0,
-                      ]
-    println!("quota_list: :?", result)
-    assert_eq!(quotas, result)
-"""
+# #[test]
+# def test_quota_list()
+#     test_data = r#"
+#     Path Hard-limit  Soft-limit      Used  Available  Soft-limit exceeded? \
+# Hard-limit exceeded?
+# ---------------------------------------------------------------------------\
+# -------------------
+# / 1.0KB  80%(819Bytes)   0Bytes   1.0KB              No                   \
+# No
+# "#
+#     result = parse_quota_list("test", test_data)
+#     quotas = vec![Quota
+#                           path: PathBuf::from("/"),
+#                           limit: 1024,
+#                           importd: 0,
+#                       ]
+#     println!("quota_list: :?", result)
+#     assert_eq!(quotas, result)
 
 
 def parse_quota_list(output_xml: str) -> List[Quota]:
@@ -645,8 +643,8 @@ def parse_quota_list(output_xml: str) -> List[Quota]:
             elif limit_info.tag == 'hl_exceeded':
                 hard_limit_exceeded = limit_info.text
         quota = Quota(path=path, hard_limit=hard_limit, soft_limit=soft_limit,
-                      soft_limit_percentage=soft_limit_percent, used=used_space,
-                      avail=avail_space,
+                      soft_limit_percentage=soft_limit_percent,
+                      used=used_space, avail=avail_space,
                       soft_limit_exceeded=soft_limit_exceeded,
                       hard_limit_exceeded=hard_limit_exceeded)
         quota_list.append(quota)
@@ -762,30 +760,27 @@ def volume_add_quota(volume: str, path: str, size: int) -> (int, str):
     return run_command("gluster", arg_list, True, False)
 
 
-"""
-#[test]
-def test_parse_volume_status()
-    test_data = r#"
-    "#
-        result = parse_volume_status(test_data)
-        println!("status: :?", result)
-        # Have to inspect these manually becaimport the UUID is randomly 
-        # generated by the parser.
-        # It's either that or it has to be set to some fixed UUID.  
-        # Neither solution seems good
-        assert_eq!(result[0].brick.peer.hostname, "172.31.46.33")
-        assert_eq!(result[0].tcp_port, 49152)
-        assert_eq!(result[0].rdma_port, 0)
-        assert_eq!(result[0].online, True)
-        assert_eq!(result[0].pid, 14228)
-
-        assert_eq!(result[1].brick.peer.hostname, "172.31.19.130")
-        assert_eq!(result[1].tcp_port, 49152)
-        assert_eq!(result[1].rdma_port, 0)
-        assert_eq!(result[1].online, True)
-        assert_eq!(result[1].pid, 14446)
-
-    """
+# #[test]
+# def test_parse_volume_status()
+#     test_data = r#"
+#     "#
+#         result = parse_volume_status(test_data)
+#         println!("status: :?", result)
+#         # Have to inspect these manually becaimport the UUID is randomly
+#         # generated by the parser.
+#         # It's either that or it has to be set to some fixed UUID.
+#         # Neither solution seems good
+#         assert_eq!(result[0].brick.peer.hostname, "172.31.46.33")
+#         assert_eq!(result[0].tcp_port, 49152)
+#         assert_eq!(result[0].rdma_port, 0)
+#         assert_eq!(result[0].online, True)
+#         assert_eq!(result[0].pid, 14228)
+#
+#         assert_eq!(result[1].brick.peer.hostname, "172.31.19.130")
+#         assert_eq!(result[1].tcp_port, 49152)
+#         assert_eq!(result[1].rdma_port, 0)
+#         assert_eq!(result[1].online, True)
+#         assert_eq!(result[1].pid, 14446)
 
 
 def ok_to_remove(volume: str, brick: Brick) -> bool:
@@ -807,7 +802,8 @@ def ok_to_remove(volume: str, brick: Brick) -> bool:
         raise GlusterError(
             "vol status cmd failed with error: {}".format(output))
 
-    bricks = parse_volume_status(output)
+    parse_volume_status(output)
+
     # The redundancy requirement is needed here.
     # The code needs to understand what
     # volume type it's operating on.
@@ -1014,9 +1010,8 @@ def volume_delete(volume: str) -> (int, str):
 def volume_rebalance(volume: str) -> (int, str):
     """
     # This function doesn't do anything yet.  It is a place holder because
-    # volume_rebalance
-    # is a long running command and I haven't decided how to poll for completion
-    # yet
+    # volume_rebalance is a long running command and I haven't decided how to
+    # poll for completion yet
     # Usage: volume rebalance <VOLNAME> fix-layout start | start
     # [force]|stop|status
     :param volume: str.  The name of the volume to start rebalancing
@@ -1112,8 +1107,8 @@ def volume_create_arbiter(volume: str, replica_count: int, arbiter_count: int,
                           transport: Transport,
                           bricks: List[Brick], force: bool) -> (int, str):
     """
-    The arbiter volume is special subset of replica volumes that is aimed at 
-    preventing split-brains and providing the same consistency guarantees 
+    The arbiter volume is special subset of replica volumes that is aimed at
+    preventing split-brains and providing the same consistency guarantees
     as a normal replica 3 volume without consuming 3x space.
     # Failures
     Will return GlusterError if the command fails to run
@@ -1206,3 +1201,20 @@ def volume_create_erasure(volume: str, disperse_count: int,
 
     return volume_create(volume, volume_translators, transport, bricks,
                          force)
+
+
+def get_local_bricks(volume: str) -> List[Brick]:
+    """
+        Return all bricks that are being served locally in the volume
+        volume: Name of the volume to get local bricks for
+    """
+    vol_info = volume_info(volume)
+    # Avoid some circular imports
+    import gluster.lib
+    local_ip = gluster.lib.get_local_ip()
+    local_brick_list = []
+    for volume in vol_info:
+        for brick in volume.bricks:
+            if brick.peer.hostname == local_ip:
+                local_brick_list.append(brick)
+    return local_brick_list
