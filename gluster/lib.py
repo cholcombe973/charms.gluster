@@ -18,6 +18,7 @@
 from enum import Enum
 from ipaddress import ip_address
 import re
+from result import Err, Ok, Result
 from typing import List
 
 import subprocess
@@ -595,7 +596,7 @@ class GlusterError(Exception):
 
 
 def run_command(command: str, arg_list: List[str], as_root: bool,
-                script_mode: bool) -> (int, str):
+                script_mode: bool) -> Result:
     """
     command: String.  The command to run
     arg_list: list. A list of arguments to add to the command
@@ -615,12 +616,12 @@ def run_command(command: str, arg_list: List[str], as_root: bool,
         cmd.append(arg)
     try:
         output = subprocess.check_output(cmd, stderr=subprocess.PIPE)
-        return 0, output
+        return Ok(output)
     except subprocess.CalledProcessError as e:
-        return e.returncode, e.output
+        return Err(e.output)
 
 
-def get_local_ip() -> ip_address:
+def get_local_ip() -> Result:
     """
     Returns the local IPAddr address associated with this server
     # Failures
@@ -639,54 +640,53 @@ def get_local_ip() -> ip_address:
     addr_regex = re.compile(r"(?P<addr>via \S+)")
     default_route_parse = addr_regex.search(default_route_stdout)
     if default_route_parse is None:
-        raise GlusterError(
-            "Unable to parse default route from: {}".format(
-                default_route_stdout))
+        return Err("Unable to parse default route from: {}".format(
+            default_route_stdout))
     addr_raw = default_route_parse.group("addr")
     addr = addr_raw.split(" ")[1]
 
     arg_list = ["route", "get", addr[0]]
     ret_code, src_address_output = run_command("ip", arg_list, False, False)
     if ret_code is not 0:
-        raise GlusterError(
-            "ip route get cmd failed: {}".format(src_address_output))
+        return Err("ip route get cmd failed: {}".format(src_address_output))
     # 192.168.1.1 dev wlan0  src 192.168.1.7
     local_address_stdout = src_address_output
     src_regex = re.compile(r"(?P<src>src \S+)")
     capture_output = src_regex.search(local_address_stdout)
     if capture_output is None:
-        raise GlusterError(
-            "Unable to parse local_address from: {}".format(
-                local_address_stdout))
+        return Err("Unable to parse local_address from: {}".format(
+            local_address_stdout))
 
     local_address_src = capture_output.group('src')
     local_ip = local_address_src.split(" ")[1]
     ip_addr = ip_address(local_ip.strip())
 
-    return ip_addr  # Resolves a str hostname into a ip address.
+    return Ok(ip_addr)  # Resolves a str hostname into a ip address.
 
 
-def resolve_to_ip(address: str) -> ip_address:
+def resolve_to_ip(address: str) -> Result:
     """
         address: String.  Hostname to resolve to an ip address
     """
     if address == "localhost":
         local_ip = get_local_ip()
+        if local_ip.is_err():
+            return Err(local_ip.value)
         # log("hostname is localhost. Resolving to local ip ".format(local_ip))
-        return local_ip
+        return Ok(local_ip.value)
 
     arg_list = ["+short", address.strip()]
     ret_code, output = run_command("dig", arg_list, False, False)
 
     if ret_code is not 0:
-        raise GlusterError("dig cmd failed with error:{}".format(output))
+        return Err("dig cmd failed with error:{}".format(output))
     # Remove the trailing . and newline
     trimmed = output.strip().rstrip(".")
     try:
         ip_addr = ip_address(trimmed)
-        return ip_addr
+        return Ok(ip_addr)
     except ValueError:
-        raise
+        return Err("failed to parse ip address: {}".format(trimmed))
 
 
 def get_local_hostname() -> str:

@@ -1,9 +1,3 @@
-# import std::fs::read_dir
-# import std::path::Path
-
-# import volume::Brick
-# import super::GlusterError
-
 import os
 from gluster.volume import Brick
 
