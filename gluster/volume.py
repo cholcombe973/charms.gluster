@@ -1,21 +1,19 @@
 from enum import Enum
 from ipaddress import ip_address
+from result import Err, Ok, Result
 from typing import Dict, List
 import uuid
 import xml.etree.ElementTree as etree
 
 from gluster.peer import get_peer
 from gluster.peer import Peer
-from gluster.lib import BitrotOption
-from gluster.lib import GlusterError
-from gluster.lib import GlusterOption
-from gluster.lib import resolve_to_ip
-from gluster.lib import run_command
+from gluster.lib import BitrotOption, get_local_ip, GlusterError, \
+    GlusterOption, resolve_to_ip, run_command
 
 
 # A Gluster Brick consists of a Peer and a path to the mount point
 class Brick(object):
-    def __init__(self, uuid: uuid, peer: Peer, path, is_arbiter: bool):
+    def __init__(self, uuid: uuid.UUID, peer: Peer, path, is_arbiter: bool):
         """
         A Gluster brick
         :param uuid: uuid.  Uuid of the host this brick is located on
@@ -36,7 +34,7 @@ class Brick(object):
 
 class Quota(object):
     def __init__(self, path: str, hard_limit: int, soft_limit: int,
-                 soft_limit_percentage: int,
+                 soft_limit_percentage: str,
                  used: int, avail: int, soft_limit_exceeded: bool,
                  hard_limit_exceeded: bool):
         """
@@ -52,13 +50,44 @@ class Quota(object):
         :param hard_limit_exceeded: bool.  Hard limit has been exceeded.
         """
         self.path = path
-        self.hard_limit = hard_limit
+        self.hard_limit = int(hard_limit)
+        self.soft_limit = int(soft_limit)
         self.soft_limit_percentage = soft_limit_percentage
-        self.soft_limit_value = soft_limit
-        self.used = used
-        self.avail = avail
-        self.soft_limit_exceeded = soft_limit_exceeded
-        self.hard_limit_exceeded = hard_limit_exceeded
+        self.used = int(used)
+        self.avail = int(avail)
+        if soft_limit_exceeded == "No":
+            self.soft_limit_exceeded = False
+        else:
+            self.soft_limit_exceeded = True
+        if hard_limit_exceeded == "No":
+            self.hard_limit_exceeded = False
+        else:
+            self.hard_limit_exceeded = True
+
+    """
+    def __eq__(self, other):
+        return self.path == other.path and \
+               self.hard_limit == other.hard_limit and \
+               self.soft_limit == other.soft_limit and \
+               self.soft_limit_percentage == other.soft_limit_percentage and \
+               self.used == other.used and self.avail == other.avail and \
+               self.soft_limit_exceeded == other.soft_limit_exceeded and \
+               self.hard_limit_exceeded == other.hard_limit_exceeded
+    """
+
+    def __str__(self):
+        return "path:{path} hard limit:{hard_limit} " \
+               "soft limit percentage: {soft_limit_percentage} " \
+               "soft limit: {soft_limit} used: {used} " \
+               "available: {avail} soft limit exceeded: {soft_exceeded} " \
+               "hard limit exceeded: {hard_exceeded}" \
+               "".format(path=self.path, hard_limit=self.hard_limit,
+                         soft_limit_percentage=self.soft_limit_percentage,
+                         soft_limit=self.soft_limit,
+                         used=self.used,
+                         avail=self.avail,
+                         soft_exceeded=self.soft_limit_exceeded,
+                         hard_exceeded=self.hard_limit_exceeded)
 
 
 class BrickStatus(object):
@@ -89,8 +118,11 @@ class BrickStatus(object):
                                          self.pid)
 
 
-# An enum to select the transport method Gluster should import for the Volume
 class Transport(Enum):
+    """
+        An enum to select the transport method Gluster should import
+        for the Volume
+    """
     Tcp = "tcp"
     TcpAndRdma = "tcp,rdma"
     Rdma = "rdma"
@@ -189,25 +221,13 @@ class VolumeType(Enum):
             return None
 
 
-#     #[test]
-#     def test_xml_parser()
-#         import std::fs::File
-#         import std::io::Read
-#         input =
-#             buff = String::new()
-#             f = File::open("tests/replicated-vol.xml")
-#             f.read_to_string(buff)
-#             buff
-#
-#         volume = deserialize(input.as_bytes())
-#         println!("Volume: :?", volume)
-
-
-# A volume is a logical collection of bricks. Most of the gluster management
-# operations
-# happen on the volume.
 class Volume(object):
-    def __init__(self, name: str, vol_type: VolumeType, vol_id: uuid,
+    """
+    A volume is a logical collection of bricks. Most of the gluster management
+    operations happen on the volume.
+    """
+
+    def __init__(self, name: str, vol_type: VolumeType, vol_id: uuid.UUID,
                  status: str,
                  snapshot_count: int,
                  dist_count: int,
@@ -240,14 +260,28 @@ class Volume(object):
         self.bricks = bricks
         self.options = options
 
+    def __str__(self):
+        return "name:{name} type:{type} id:{id} status:{status} " \
+               "snap_count:{snap_count} distribute_count:{dist_count} " \
+               "stripe_count:{stripe_count} replica_count:{replica_count} " \
+               "arbiter_count:{arbiter_count} " \
+               "disperse_count:{disperse_count} " \
+               "redundancy_count:{redundancy_count} transport:{transport}" \
+               "bricks: {bricks} options: {options}" \
+               "".format(name=self.name, type=self.vol_type, id=self.vol_id,
+                         status=self.status, snap_count=self.snapshot_count,
+                         dist_count=self.dist_count,
+                         redundancy_count=self.redundancy_count,
+                         distribute_count=self.dist_count,
+                         stripe_count=self.stripe_count,
+                         replica_count=self.replica_count,
+                         arbiter_count=self.arbiter_count,
+                         disperse_count=self.disperse_count,
+                         transport=self.transport, bricks=self.bricks,
+                         options=self.options)
 
-class ParseState(Enum):
-    Root = 0,
-    Bricks = 1,
-    Options = 2,
 
-
-def volume_list() -> List[str]:
+def volume_list() -> Result:
     """
     # Lists all available volume names.
     # # Failures
@@ -256,80 +290,36 @@ def volume_list() -> List[str]:
     # into a String from utf8
     """
     arg_list = ["volume", "list", "--xml"]
-    retcode, output = run_command("gluster", arg_list, True, False)
-    if retcode is not 0:
-        raise GlusterError("volume list get command failed: {}".format(output))
+    output = run_command("gluster", arg_list, True, False)
+    if output.is_err():
+        return Err(output.value)
+    return parse_volume_list(output.value)
 
+
+def parse_volume_list(volume_xml: str) -> Result:
     # Parse XML output
-    tree = etree.fromstring(output)
+    tree = etree.fromstring(volume_xml)
 
     return_code = 0
     err_string = ""
 
     for child in tree:
         if child.tag == 'opRet':
-            return_code = child.text
+            return_code = int(child.text)
         elif child.tag == 'opErrstr':
             err_string = child.text
 
     if return_code != 0:
-        raise GlusterError(message=err_string)
+        return Err(err_string)
     volumes = tree.find('volList')
     volume_list = []
     for vol in volumes:
         if vol.tag == 'volume':
             volume_list.append(vol.text)
-    return volume_list
+    return Ok(volume_list)
 
 
-#     #[test]
-#     def test_parse_volume_info():
-#         test_data = r#"
-#
-#     Volume Name: test
-#     Type: Replicate
-#     Volume ID: cae6868d-b080-4ea3-927b-93b5f1e3fe69
-#     Status: Started
-#     Number of Bricks: 1 x 2 = 2
-#     Transport-type: tcp
-#     Bricks:
-#     Brick1: 172.31.41.135:/mnt/xvdf
-#     Options Reconfigured:
-#     features.inode-quota: off
-#     features.quota: off
-#     transport.address-family: inet
-#     performance.readdir-ahead: on
-#     nfs.disable: on
-#     "#
-#         result = parse_volume_info("test", test_data)
-#         options_map: BTreeMap<String, String> = BTreeMap::new()
-#         options_map.insert("features.inode-quota", "off")
-#         options_map.insert("features.quota", "off")
-#         options_map.insert("transport.address-family", "inet")
-#         options_map.insert("performance.readdir-ahead", "on")
-#         options_map.insert("nfs.disable", "on")
-#
-#         vol_info = Volume
-#             name: "test",
-#             vol_type: VolumeType::Replicate,
-#             id: "cae6868d-b080-4ea3-927b-93b5f1e3fe69",
-#             status: "Started",
-#             transport: Transport::Tcp,
-#             bricks: vec![Brick
-#                              peer: Peer
-#                              uuid: "78f68270-201a-4d8a-bad3-7cded6e6b7d8",
-#                              hostname: "test_ip",
-#                              status: State::Connected,
-#                              ,
-#                              path: PathBuf::from("/mnt/xvdf"),
-#                          ],
-#             options: options_map,
-#
-#         println!("vol_info: :?", vol_info)
-#         assert_eq!(vol_info, result)
-
-
-def parse_volume_info(volume_xml: str) -> List[Volume]:
+def parse_volume_info(volume_xml: str) -> Result:
     """
     # Variables we will return in a class
     :param volume_xml: The output of the cli command with --xml flag
@@ -342,12 +332,14 @@ def parse_volume_info(volume_xml: str) -> List[Volume]:
 
     for child in tree:
         if child.tag == 'opRet':
-            return_code = child.text
+            return_code = int(child.text)
         elif child.tag == 'opErrstr':
             err_string = child.text
 
     if return_code != 0:
-        raise GlusterError(message=err_string)
+        return Err(err_string)
+
+    volume_info_list = []
     volumes = tree.findall('./volInfo/volumes/volume')
 
     name = None
@@ -416,7 +408,7 @@ def parse_volume_info(volume_xml: str) -> List[Volume]:
                             uuid = brick_info.text
                         elif brick_info.tag == 'isArbiter':
                             is_arbiter = brick_info.text
-                    hostname = name.split9(":")[0]
+                    hostname = name.split(":")[0]
                     # Translate back into an IP address if needed
                     try:
                         ip_address(hostname)
@@ -430,19 +422,20 @@ def parse_volume_info(volume_xml: str) -> List[Volume]:
                             peer=peer,
                             path=path,
                             is_arbiter=is_arbiter))
-        volumes.append(Volume(name=name, vol_type=vol_type, vol_id=vol_id,
-                              status=status,
-                              snapshot_count=snapshot_count,
-                              dist_count=dist_count,
-                              stripe_count=stripe_count,
-                              replica_count=replica_count,
-                              disperse_count=disperse_count,
-                              arbiter_count=arbiter_count,
-                              redundancy_count=redundancy_count,
-                              bricks=bricks,
-                              options=options,
-                              transport=transport))
-    return volumes
+        volume_info_list.append(
+            Volume(name=name, vol_type=vol_type, vol_id=vol_id,
+                   status=status,
+                   snapshot_count=snapshot_count,
+                   dist_count=dist_count,
+                   stripe_count=stripe_count,
+                   replica_count=replica_count,
+                   disperse_count=disperse_count,
+                   arbiter_count=arbiter_count,
+                   redundancy_count=redundancy_count,
+                   bricks=bricks,
+                   options=options,
+                   transport=transport))
+    return Ok(volume_info_list)
 
 
 def volume_info(volume: str) -> List[Volume]:
@@ -461,97 +454,6 @@ def volume_info(volume: str) -> List[Volume]:
         raise GlusterError("Volume info get cmd failed: {}".format(output))
 
     return parse_volume_info(output)
-
-
-# # Returns a u64 representing the bytes importd on the volume.
-# # Note: This imports my brand new RPC library.  Some bugs may exist so import
-# # caution.  This does not
-# # shell out and therefore should be significantly faster.  It also suffers
-# # far less hang conditions
-# # than the CLI version.
-# # # Failures
-# # Will return GlusterError if the RPC fails
-#  def get_quota_usage(volume: str) -> Result<u64, GlusterError>
-#     xid = 1 #Transaction ID number.
-#     prog = rpc::GLUSTER_QUOTA_PROGRAM_NUMBER
-#     vers = 1 #RPC version == 1
-#
-#     verf = rpc::GlusterAuth
-#         flavor: rpc::AuthFlavor::AuthNull,
-#         stuff: vec![0, 0, 0, 0],
-#
-#     verf_bytes = (verf.pack())
-#
-#     creds = rpc::GlusterCred
-#         flavor: rpc::GLUSTER_V2_CRED_FLAVOR,
-#         pid: 0,
-#         uid: 0,
-#         gid: 0,
-#         groups: "",
-#         lock_owner: vec![0, 0, 0, 0],
-#
-#     cred_bytes = (creds.pack())
-#
-#     call_bytes = (rpc::pack_quota_callheader(xid,
-#                                         prog,
-#                                         vers,
-#                     rpc::GlusterAggregatorCommand::GlusterAggregatorGetlimit,
-#                                         cred_bytes,
-#                                         verf_bytes))
-#
-#     dict: HashMap<String, Vec<u8>> = HashMap::with_capacity(4)
-#
-#     # TODO: Make a Gluster wd RPC call and parse this from the quota.conf
-#     # file This is crap
-#     gfid = "00000000-0000-0000-0000-000000000001".into_bytes()
-#     gfid.append(0) #Null Terminate
-#     name = volume.into_bytes()
-#     name.append(0) #Null Terminate
-#     version = "1.20000005".into_bytes()
-#     version.append(0) #Null Terminate
-#     #No idea what vol_type == 5 means to Gluster
-#     vol_type = "5".into_bytes()
-#     vol_type.append(0) #Null Terminate
-#
-#     dict.insert("gfid", gfid)
-#     dict.insert("type", vol_type)
-#     dict.insert("volume-uuid", name)
-#     dict.insert("version", version)
-#     quota_request = rpc::GlusterCliRequest  dict: dict
-#     quota_bytes = (quota_request.pack())
-#     for byte in quota_bytes
-#         call_bytes.append(byte)
-#
-#
-#     # Ok.. we need to hunt down the quota socket file ..crap..
-#     addr = Path::new("/var/run/gluster/quotad.socket")
-#     sock = (UnixStream::connect(addr))
-#
-#     send_bytes = (rpc::sendrecord(sock, call_bytes))
-#     reply_bytes = (rpc::recvrecord(sock))
-#
-#     cursor = Cursor::new(reply_bytes[..])
-#
-#     # Check for success
-#     (rpc::unpack_replyheader(cursor))
-#
-#     cli_response = (rpc::GlusterCliResponse::unpack(cursor))
-#     # The raw bytes
-#     quota_size_bytes =
-#         match cli_response.dict.get_mut("trusted.glusterfs.quota.size")
-#         Some(s) => s,
-#         None =>
-#             return Err(GlusterError::new("trusted.glusterfs.quota.size was
-#                                           not returned from # quotad"
-#                 ))
-#
-#
-#     # Gluster is crazy and encodes a ton of data in this vector. We're just
-#     # going to read the first value and throw away the rest. Why they didn't
-#     # just import a class and XDR is beyond me
-#     size_cursor = Cursor::new(quota_size_bytes[..])
-#     usage = (size_cursor.read_u64::<BigEndian>())
-#     return Ok(usage)
 
 
 def quota_list(volume: str) -> List[Quota]:
@@ -575,27 +477,7 @@ def quota_list(volume: str) -> List[Quota]:
     return quota_list
 
 
-# #[test]
-# def test_quota_list()
-#     test_data = r#"
-#     Path Hard-limit  Soft-limit      Used  Available  Soft-limit exceeded? \
-# Hard-limit exceeded?
-# ---------------------------------------------------------------------------\
-# -------------------
-# / 1.0KB  80%(819Bytes)   0Bytes   1.0KB              No                   \
-# No
-# "#
-#     result = parse_quota_list("test", test_data)
-#     quotas = vec![Quota
-#                           path: PathBuf::from("/"),
-#                           limit: 1024,
-#                           importd: 0,
-#                       ]
-#     println!("quota_list: :?", result)
-#     assert_eq!(quotas, result)
-
-
-def parse_quota_list(output_xml: str) -> List[Quota]:
+def parse_quota_list(output_xml: str) -> Result:
     """
     Return a list of quotas on the volume if any
     :param output_xml:
@@ -607,12 +489,12 @@ def parse_quota_list(output_xml: str) -> List[Quota]:
 
     for child in tree:
         if child.tag == 'opRet':
-            return_code = child.text
+            return_code = int(child.text)
         elif child.tag == 'opErrstr':
             err_string = child.text
 
     if return_code != 0:
-        raise GlusterError(message=err_string)
+        return Err(err_string)
 
     quota_list = []
     limits = tree.findall('./volQuota/limit')
@@ -629,30 +511,31 @@ def parse_quota_list(output_xml: str) -> List[Quota]:
             if limit_info.tag == 'path':
                 path = limit_info.text
             elif limit_info.tag == 'hard_limit':
-                hard_limit = limit_info.text
+                hard_limit = int(limit_info.text)
             elif limit_info.tag == 'soft_limit_percent':
                 soft_limit_percent = limit_info.text
             elif limit_info.tag == 'soft_limit_value':
-                soft_limit = limit_info.text
+                soft_limit = int(limit_info.text)
             elif limit_info.tag == 'used_space':
-                used_space = limit_info.text
+                used_space = int(limit_info.text)
             elif limit_info.tag == 'avail_space':
-                avail_space = limit_info.text
+                avail_space = int(limit_info.text)
             elif limit_info.tag == 'sl_exceeded':
                 soft_limit_exceeded = limit_info.text
             elif limit_info.tag == 'hl_exceeded':
                 hard_limit_exceeded = limit_info.text
-        quota = Quota(path=path, hard_limit=hard_limit, soft_limit=soft_limit,
+        quota = Quota(path=path, hard_limit=hard_limit,
+                      soft_limit=soft_limit,
                       soft_limit_percentage=soft_limit_percent,
                       used=used_space, avail=avail_space,
                       soft_limit_exceeded=soft_limit_exceeded,
                       hard_limit_exceeded=hard_limit_exceeded)
         quota_list.append(quota)
 
-    return quota_list
+    return Ok(quota_list)
 
 
-def volume_enable_bitrot(volume: str) -> (int, str):
+def volume_enable_bitrot(volume: str) -> Result:
     """
     Enable bitrot detection and remediation on the volume
     volume: String.  The volume to operate on.
@@ -663,7 +546,7 @@ def volume_enable_bitrot(volume: str) -> (int, str):
     return run_command("gluster", arg_list, True, False)
 
 
-def volume_disable_bitrot(volume: str) -> (int, str):
+def volume_disable_bitrot(volume: str) -> Result:
     """
     Disable bitrot detection and remediation on the volume
     volume: String.  The volume to operate on.
@@ -674,7 +557,7 @@ def volume_disable_bitrot(volume: str) -> (int, str):
     return run_command("gluster", arg_list, True, False)
 
 
-def volume_set_bitrot_option(volume: str, setting: BitrotOption) -> (int, str):
+def volume_set_bitrot_option(volume: str, setting: BitrotOption) -> Result:
     """
     Set a bitrot option on the volume
     volume: String.  The volume to operate on.
@@ -686,7 +569,7 @@ def volume_set_bitrot_option(volume: str, setting: BitrotOption) -> (int, str):
     return run_command("gluster", arg_list, True, True)
 
 
-def volume_enable_quotas(volume: str) -> (int, str):
+def volume_enable_quotas(volume: str) -> Result:
     """
     Enable quotas on the volume
     :return: 0 on success
@@ -723,7 +606,7 @@ def volume_quotas_enabled(volume: str):
         "Unknown volume: {}.  Failed to get quota information".format(volume))
 
 
-def volume_disable_quotas(volume: str) -> (int, str):
+def volume_disable_quotas(volume: str) -> Result:
     """
     Disable quotas on the volume
     :return: 0 on success
@@ -733,7 +616,7 @@ def volume_disable_quotas(volume: str) -> (int, str):
     return run_command("gluster", arg_list, True, False)
 
 
-def volume_remove_quota(volume: str, path: str) -> (int, str):
+def volume_remove_quota(volume: str, path: str) -> Result:
     """
     Removes a size quota to the volume and path.
     path: String.  Path of the directory to remove a quota on
@@ -744,7 +627,7 @@ def volume_remove_quota(volume: str, path: str) -> (int, str):
     return run_command("gluster", arg_list, True, False)
 
 
-def volume_add_quota(volume: str, path: str, size: int) -> (int, str):
+def volume_add_quota(volume: str, path: str, size: int) -> Result:
     """
     Adds a size quota to the volume and path.
     volume: String Volume to add a quota to
@@ -753,37 +636,13 @@ def volume_add_quota(volume: str, path: str, size: int) -> (int, str):
     :return: 0 on success
     :raises: GlusterError if the command fails to run
     """
-    size_string = size
     arg_list = ["volume", "quota", volume, "limit-usage", path,
-                size_string]
+                str(size)]
 
     return run_command("gluster", arg_list, True, False)
 
 
-# #[test]
-# def test_parse_volume_status()
-#     test_data = r#"
-#     "#
-#         result = parse_volume_status(test_data)
-#         println!("status: :?", result)
-#         # Have to inspect these manually becaimport the UUID is randomly
-#         # generated by the parser.
-#         # It's either that or it has to be set to some fixed UUID.
-#         # Neither solution seems good
-#         assert_eq!(result[0].brick.peer.hostname, "172.31.46.33")
-#         assert_eq!(result[0].tcp_port, 49152)
-#         assert_eq!(result[0].rdma_port, 0)
-#         assert_eq!(result[0].online, True)
-#         assert_eq!(result[0].pid, 14228)
-#
-#         assert_eq!(result[1].brick.peer.hostname, "172.31.19.130")
-#         assert_eq!(result[1].tcp_port, 49152)
-#         assert_eq!(result[1].rdma_port, 0)
-#         assert_eq!(result[1].online, True)
-#         assert_eq!(result[1].pid, 14446)
-
-
-def ok_to_remove(volume: str, brick: Brick) -> bool:
+def ok_to_remove(volume: str, brick: Brick) -> Result:
     """
     Based on the replicas or erasure bits that are still available in the
     volume this will return
@@ -797,17 +656,16 @@ def ok_to_remove(volume: str, brick: Brick) -> bool:
     """
     arg_list = ["vol", "status", volume]
 
-    retcode, output = run_command("gluster", arg_list, True, False)
-    if retcode is not 0:
-        raise GlusterError(
-            "vol status cmd failed with error: {}".format(output))
+    output = run_command("gluster", arg_list, True, False)
+    if output.is_err():
+        return Err("vol status cmd failed with error: {}".format(output.value))
 
     parse_volume_status(output)
 
     # The redundancy requirement is needed here.
     # The code needs to understand what
     # volume type it's operating on.
-    return True
+    return Ok(True)
 
 
 #  def volume_shrink_replicated(volume: str,
@@ -821,25 +679,24 @@ def ok_to_remove(volume: str, brick: Brick) -> bool:
 #
 
 
-def parse_volume_status(output_xml: str) -> List[BrickStatus]:
+def parse_volume_status(output_xml: str) -> Result:
     tree = etree.fromstring(output_xml)
-    root = tree.getroot()
 
     return_code = 0
     err_string = ""
 
-    for child in root:
+    for child in tree:
         if child.tag == 'opRet':
-            return_code = child.text
+            return_code = int(child.text)
         elif child.tag == 'opErrstr':
             err_string = child.text
 
     if return_code != 0:
-        raise GlusterError(message=err_string)
+        return Err(err_string)
 
     status_list = []
 
-    volumes = root.findall('./volStatus/volumes/volume')
+    volumes = tree.findall('./volStatus/volumes/volume')
     for volume in volumes:
         for vol_info in volume:
             if vol_info.tag == 'node':
@@ -879,10 +736,10 @@ def parse_volume_status(output_xml: str) -> List[BrickStatus]:
                                            online=False,
                                            pid=pid)
                 status_list.append(brick_status)
-    return status_list
+    return Ok(status_list)
 
 
-def volume_status(volume: str) -> List[BrickStatus]:
+def volume_status(volume: str) -> Result:
     """
         Query the status of the volume given.
         :return: list.  List of BrickStatus
@@ -890,13 +747,14 @@ def volume_status(volume: str) -> List[BrickStatus]:
     """
     arg_list = ["vol", "status", volume, "--xml"]
 
-    retcode, output = run_command("gluster", arg_list, True, False)
-    if retcode is not 0:
-        raise GlusterError(
-            "volume status cmd failed with error: {}".format(output))
-    bricks = parse_volume_status(output)
+    output = run_command("gluster", arg_list, True, False)
+    if output.is_err():
+        return Err(output.value)
+    bricks = parse_volume_status(output.value)
+    if bricks.is_err():
+        return Err(bricks.value)
 
-    return bricks
+    return Ok(bricks.value)
 
     #  def volume_shrink_replicated(volume: str,
     # replica_count: usize,
@@ -912,7 +770,8 @@ def volume_status(volume: str) -> List[BrickStatus]:
 # This will remove a brick from the volume
 # # Failures
 # Will return GlusterError if the command fails to run
-def volume_remove_brick(volume: str, bricks: List[Brick], force: bool):
+def volume_remove_brick(volume: str, bricks: List[Brick],
+                        force: bool) -> Result:
     """
     This will remove bricks from the volume
     :param volume: String of the volume to remove bricks from.
@@ -922,22 +781,22 @@ def volume_remove_brick(volume: str, bricks: List[Brick], force: bool):
     """
 
     if len(bricks) == 0:
-        raise GlusterError("The brick list is empty.  Not removing brick")
+        return Err("The brick list is empty.  Not removing brick")
 
     for brick in bricks:
         ok = ok_to_remove(volume, brick)
         if ok:
-            arg_list = ["volume", "remove-brick", volume, str(brick)]
+            arg_list = ["volume", "remove-brick", volume, "{}".format(brick)]
             if force:
                 arg_list.append("force")
 
             arg_list.append("start")
-            retcode, output = run_command("gluster", arg_list, True, True)
-            if retcode is not 0:
-                raise GlusterError(
-                    "Remove brick failed with error: {}".format(output))
+            output = run_command("gluster", arg_list, True, True)
+            if output.is_err():
+                return Err(
+                    "Remove brick failed with error: {}".format(output.value))
         else:
-            raise GlusterError(
+            return Err(
                 "Unable to remove brick due to redundancy failure")
 
 
@@ -966,7 +825,7 @@ def volume_add_brick(volume: str, bricks: List[Brick], force: bool) -> (
     return run_command("gluster", arg_list, True, True)
 
 
-def volume_start(volume: str, force: bool) -> (int, str):
+def volume_start(volume: str, force: bool) -> Result:
     # Should I check the volume exists first?
     """
     Once a volume is created it needs to be started.  This starts the volume
@@ -982,7 +841,7 @@ def volume_start(volume: str, force: bool) -> (int, str):
     return run_command("gluster", arg_list, True, True)
 
 
-def volume_stop(volume: str, force: bool) -> (int, str):
+def volume_stop(volume: str, force: bool) -> Result:
     """
     This stops a running volume
     :param volume:  String of the volume to stop
@@ -997,7 +856,7 @@ def volume_stop(volume: str, force: bool) -> (int, str):
     return run_command("gluster", arg_list, True, True)
 
 
-def volume_delete(volume: str) -> (int, str):
+def volume_delete(volume: str) -> Result:
     """
     This deletes a stopped volume
     :param volume:  String of the volume name to delete
@@ -1007,7 +866,7 @@ def volume_delete(volume: str) -> (int, str):
     return run_command("gluster", arg_list, True, True)
 
 
-def volume_rebalance(volume: str) -> (int, str):
+def volume_rebalance(volume: str) -> Result:
     """
     # This function doesn't do anything yet.  It is a place holder because
     # volume_rebalance is a long running command and I haven't decided how to
@@ -1022,8 +881,8 @@ def volume_rebalance(volume: str) -> (int, str):
 
 
 def volume_create(volume: str, options: Dict[VolumeTranslator, str],
-                  transport: Transport, bricks: List[Brick], force: bool) -> (
-        int, str):
+                  transport: Transport, bricks: List[Brick],
+                  force: bool) -> Result:
     """
 
     :param volume: String.  Name of the volume to create
@@ -1054,17 +913,17 @@ def volume_create(volume: str, options: Dict[VolumeTranslator, str],
     return run_command("gluster", arg_list, True, True)
 
 
-def vol_set(volume: str, option: GlusterOption) -> (int, str):
+def vol_set(volume: str, option: GlusterOption) -> Result:
     """
     :param volume: String. Volume name to set the option on
     :param option: GlusterOption
     :return: (int, str).  Return code and output of cmd
     """
-    arg_list = ["volume", "set", volume, option, option.value()]
+    arg_list = ["volume", "set", volume, option.name, option.value]
     return run_command("gluster", arg_list, True, True)
 
 
-def volume_set_options(volume: str, settings: List[GlusterOption]) -> int:
+def volume_set_options(volume: str, settings: List[GlusterOption]) -> Result:
     """
     Set an option on the volume
     :param volume: String. Volume name to set the option on
@@ -1074,19 +933,18 @@ def volume_set_options(volume: str, settings: List[GlusterOption]) -> int:
     # Will return GlusterError if the command fails to run
     error_list = []
     for setting in settings:
-        try:
-            vol_set(volume, setting)
-        except GlusterError as e:
-            error_list.append(e)
+        result = vol_set(volume, setting)
+        if result.is_err():
+            error_list.append(result.value)
 
     if len(error_list) > 0:
-        raise GlusterError("\n".join(error_list))
-    return 0
+        return Err("\n".join(error_list))
+    return Ok()
 
 
 def volume_create_replicated(volume: str, replica_count: int,
                              transport: Transport, bricks: List[Brick],
-                             force: bool) -> (int, str):
+                             force: bool) -> Result:
     """
     This creates a new replicated volume
     :param replica_count:
@@ -1094,10 +952,8 @@ def volume_create_replicated(volume: str, replica_count: int,
     :param bricks:
     :param force:
     :param volume: String. Volume name to set the option on
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  If Ok() stdout is returned.  Err returns stderr
     """
-    # # Failures
-    # Will return GlusterError if the command fails to run
     volume_translators = {VolumeTranslator.Replica: str(replica_count)}
 
     return volume_create(volume, volume_translators, transport, bricks, force)
@@ -1105,20 +961,18 @@ def volume_create_replicated(volume: str, replica_count: int,
 
 def volume_create_arbiter(volume: str, replica_count: int, arbiter_count: int,
                           transport: Transport,
-                          bricks: List[Brick], force: bool) -> (int, str):
+                          bricks: List[Brick], force: bool) -> Result:
     """
     The arbiter volume is special subset of replica volumes that is aimed at
     preventing split-brains and providing the same consistency guarantees
     as a normal replica 3 volume without consuming 3x space.
-    # Failures
-    Will return GlusterError if the command fails to run
     :param volume:
     :param replica_count:
     :param arbiter_count:
     :param transport:
     :param bricks:
     :param force:
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  If Ok() stdout is returned.  Err returns stderr
     """
     volume_translators = {VolumeTranslator.Replica: str(replica_count),
                           VolumeTranslator.Arbiter: str(arbiter_count)}
@@ -1127,17 +981,15 @@ def volume_create_arbiter(volume: str, replica_count: int, arbiter_count: int,
 
 
 def volume_create_striped(volume: str, stripe_count: int, transport: Transport,
-                          bricks: List[Brick], force: bool) -> (int, str):
+                          bricks: List[Brick], force: bool) -> Result:
     """
-    # This creates a new striped volume
-    # # Failures
-    # Will return GlusterError if the command fails to run
+    This creates a new striped volume
     :param volume:
     :param stripe_count:
     :param transport:
     :param bricks:
     :param force:
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  If Ok() stdout is returned.  Err returns stderr
     """
     volume_translators = {VolumeTranslator.Stripe: str(stripe_count)}
 
@@ -1147,18 +999,16 @@ def volume_create_striped(volume: str, stripe_count: int, transport: Transport,
 def volume_create_striped_replicated(volume: str, stripe_count: int,
                                      replica_count: int,
                                      transport: Transport, bricks: List[Brick],
-                                     force: bool) -> (int, str):
+                                     force: bool) -> Result:
     """
-    # This creates a new striped and replicated volume
-    # # Failures
-    # Will return GlusterError if the command fails to run
+    This creates a new striped and replicated volume
     :param volume:
     :param stripe_count:
     :param replica_count:
     :param transport:
     :param bricks:
     :param force:
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  If Ok() stdout is returned.  Err returns stderr
     """
     volume_translators = {VolumeTranslator.Stripe: str(stripe_count),
                           VolumeTranslator.Replica: str(replica_count)}
@@ -1167,16 +1017,14 @@ def volume_create_striped_replicated(volume: str, stripe_count: int,
 
 
 def volume_create_distributed(volume: str, transport: Transport,
-                              bricks: List[Brick], force: bool) -> (int, str):
+                              bricks: List[Brick], force: bool) -> Result:
     """
-    # This creates a new distributed volume
-    # # Failures
-    # Will return GlusterError if the command fails to run
+    This creates a new distributed volume
     :param volume:
     :param transport:
     :param bricks:
     :param force:
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  If Ok() stdout is returned.  Err returns stderr
     """
     return volume_create(volume, {}, transport, bricks,
                          force)
@@ -1185,16 +1033,16 @@ def volume_create_distributed(volume: str, transport: Transport,
 def volume_create_erasure(volume: str, disperse_count: int,
                           redundancy_count: int,
                           transport: Transport,
-                          bricks, force: bool) -> (int, str):
+                          bricks, force: bool) -> Result:
     """
-    #  This creates a new erasure coded volume
+    This creates a new erasure coded volume
     :param volume: String
     :param disperse_count: int
     :param redundancy_count: int
     :param transport: Transport
     :param bricks: list of Brick
     :param force: bool
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  If Ok() stdout is returned.  Err returns stderr
     """
     volume_translators = {VolumeTranslator.Disperse: str(disperse_count),
                           VolumeTranslator.Redundancy: str(redundancy_count)}
@@ -1209,9 +1057,7 @@ def get_local_bricks(volume: str) -> List[Brick]:
         volume: Name of the volume to get local bricks for
     """
     vol_info = volume_info(volume)
-    # Avoid some circular imports
-    import gluster.lib
-    local_ip = gluster.lib.get_local_ip()
+    local_ip = get_local_ip()
     local_brick_list = []
     for volume in vol_info:
         for brick in volume.bricks:
