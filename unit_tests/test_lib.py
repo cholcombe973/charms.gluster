@@ -48,7 +48,7 @@ class TestTranslateToBytes(unittest.TestCase):
         self.tests = {
             "1TB": 1099511627776.0,
             "8.2KB": 8396.8,
-            "2BYTES": 2.0
+            "2Bytes": 2.0
         }
 
     def test(self):
