@@ -438,7 +438,7 @@ def parse_volume_info(volume_xml: str) -> Result:
     return Ok(volume_info_list)
 
 
-def volume_info(volume: str) -> List[Volume]:
+def volume_info(volume: str) -> Result:
     """
     Returns a Volume with all available information on the volume
     volume: String.  The volume to gather info about
@@ -446,17 +446,17 @@ def volume_info(volume: str) -> List[Volume]:
     :raises: GlusterError if the command fails to run
     """
     arg_list = ["volume", "info", volume, '--xml']
-    retcode, output = run_command("gluster", arg_list, True, False)
+    output = run_command("gluster", arg_list, True, False)
 
-    if retcode is not 0:
+    if output.is_err():
         # TODO: What is the appropriate error to report here?
         # The client is using this to figure out if it should make a volume
-        raise GlusterError("Volume info get cmd failed: {}".format(output))
+        return Err("Volume info get cmd failed: {}".format(output.value))
 
-    return parse_volume_info(output)
+    return parse_volume_info(output.value)
 
 
-def quota_list(volume: str) -> List[Quota]:
+def quota_list(volume: str) -> Result:
     """
     Return a list of quotas on the volume if any
     Enable bitrot detection and remediation on the volume
@@ -465,16 +465,16 @@ def quota_list(volume: str) -> List[Quota]:
     :raises: GlusterError if the command fails to run
     """
     args_list = ["volume", "quota", volume, "list", "--xml"]
-    retcode, output = run_command("gluster", args_list, True, False)
+    output = run_command("gluster", args_list, True, False)
 
-    if retcode is not 0:
-        raise GlusterError(
+    if output.is_err():
+        return Err(
             "Volume quota list command failed with error: {}".format(
-                output))
+                output.value))
 
-    quota_list = parse_quota_list(output)
+    quota_list_result = parse_quota_list(output.value)
 
-    return quota_list
+    return quota_list_result
 
 
 def parse_quota_list(output_xml: str) -> Result:
@@ -801,8 +801,7 @@ def volume_remove_brick(volume: str, bricks: List[Brick],
 
 
 # Will return GlusterError if the command fails to run
-def volume_add_brick(volume: str, bricks: List[Brick], force: bool) -> (
-        int, str):
+def volume_add_brick(volume: str, bricks: List[Brick], force: bool) -> Result:
     """
     volume add-brick <VOLNAME> [<stripe|replica> <COUNT>]
     <NEW-BRICK> ... [force] - add brick to volume <VOLNAME>
@@ -810,7 +809,7 @@ def volume_add_brick(volume: str, bricks: List[Brick], force: bool) -> (
     :param volume: String of the volume to add bricks to.
     :param bricks:  list.  List of bricks to add to the volume
     :param force:  bool.  Force add brick
-    :return: int.  Negative number on error
+    :return: Result.  Ok or Err
     """
 
     if len(bricks) == 0:
@@ -831,7 +830,7 @@ def volume_start(volume: str, force: bool) -> Result:
     Once a volume is created it needs to be started.  This starts the volume
     :param volume: String of the volume to start.
     :param force:  bool.  Force start
-    :return: int.  Negative number on error
+    :return: Result.  Ok or Err
     """
     arg_list = ["volume", "start", volume]
 
@@ -846,7 +845,7 @@ def volume_stop(volume: str, force: bool) -> Result:
     This stops a running volume
     :param volume:  String of the volume to stop
     :param force:  bool. Force stop.
-    :return: int.  Negative number on error
+    :return: Result.  Ok or Err
     """
     arg_list = ["volume", "stop", volume]
 
@@ -860,7 +859,7 @@ def volume_delete(volume: str) -> Result:
     """
     This deletes a stopped volume
     :param volume:  String of the volume name to delete
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  Ok or Err
     """
     arg_list = ["volume", "delete", volume]
     return run_command("gluster", arg_list, True, True)
@@ -874,7 +873,7 @@ def volume_rebalance(volume: str) -> Result:
     # Usage: volume rebalance <VOLNAME> fix-layout start | start
     # [force]|stop|status
     :param volume: str.  The name of the volume to start rebalancing
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  Ok or Err
     """
     arg_list = ["volume", "rebalance", volume, "start"]
     return run_command("gluster", arg_list, True, True)
@@ -890,7 +889,7 @@ def volume_create(volume: str, options: Dict[VolumeTranslator, str],
     :param transport: Transport.  The transport to use
     :param bricks: list of Brick.  Bricks to put into the volume
     :param force.  Should volume creation be forced or not
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  Ok or Err
     :raise GlusterError:
     """
     if len(bricks) == 0:
@@ -917,7 +916,7 @@ def vol_set(volume: str, option: GlusterOption) -> Result:
     """
     :param volume: String. Volume name to set the option on
     :param option: GlusterOption
-    :return: (int, str).  Return code and output of cmd
+    :return: Result.  Return code and output of cmd
     """
     arg_list = ["volume", "set", volume, option.name, option.value]
     return run_command("gluster", arg_list, True, True)
@@ -1051,16 +1050,18 @@ def volume_create_erasure(volume: str, disperse_count: int,
                          force)
 
 
-def get_local_bricks(volume: str) -> List[Brick]:
+def get_local_bricks(volume: str) -> Result:
     """
         Return all bricks that are being served locally in the volume
         volume: Name of the volume to get local bricks for
     """
     vol_info = volume_info(volume)
+    if vol_info.is_err():
+        return Err(vol_info.value)
     local_ip = get_local_ip()
     local_brick_list = []
-    for volume in vol_info:
+    for volume in vol_info.value:
         for brick in volume.bricks:
             if brick.peer.hostname == local_ip:
                 local_brick_list.append(brick)
-    return local_brick_list
+    return Ok(local_brick_list)

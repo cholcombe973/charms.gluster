@@ -1,19 +1,14 @@
-#! This is a library to interface with
-# ! [Gluster](https:#gluster.readthedocs.org/en/latest/)
-# !
-# ! Most of the commands below are wrappers around the CLI functionality.
-# ! However recently I have
-# ! reverse engineered some of the Gluster RPC protocol so that calls can be
-# ! made directly against
-# ! the Gluster server.  This method of communication is much faster than
-# ! shelling out.
-# !
-# ! Scale testing with this library has been done to about 60 servers
-# ! successfully.
-# !
-# ! Please file any bugs found at: [Gluster
-# ! Repo](https:#github.com/cholcombe973/Gluster)
-# ! Pull requests are more than welcome!
+# This is a library to interface with
+# [Gluster](https:#gluster.readthedocs.org/en/latest/)
+#
+# Most of the commands below are wrappers around the CLI XML functionality.
+#
+# Scale testing with this library has been done to about 60 servers
+# successfully.
+#
+# Please file any bugs found at: [Gluster
+# Repo](https:#github.com/cholcombe973/Gluster)
+# Pull requests are more than welcome!
 
 from enum import Enum
 from ipaddress import ip_address
@@ -602,8 +597,7 @@ def run_command(command: str, arg_list: List[str], as_root: bool,
     arg_list: list. A list of arguments to add to the command
     as_root: bool.  Should the command be run as root
     script_mode: bool.  Should the command be run in script mode
-    :rtype: (returncode, str).  Returns 0, stdout on success or nonzero, stderr
-     on error
+    :returns: Result.  Ok(stdout) or Err(stderr)
     """
     cmd = []
     if as_root:
@@ -629,10 +623,10 @@ def get_local_ip() -> Result:
     while trying to
     query this information.
     """
-    default_route = ["route", "show", "0.0.0.0/0"]
-    ret_code, cmd_output = run_command("ip", default_route, False, False)
+    ret_code, cmd_output = run_command("ip", ["route", "show", "0.0.0.0/0"],
+                                       False, False)
     if ret_code is not 0:
-        raise GlusterError("ip route show cmd failed: {}".format(cmd_output))
+        return Err("ip route show cmd failed: {}".format(cmd_output))
 
     default_route_stdout = cmd_output
 
@@ -645,8 +639,8 @@ def get_local_ip() -> Result:
     addr_raw = default_route_parse.group("addr")
     addr = addr_raw.split(" ")[1]
 
-    arg_list = ["route", "get", addr[0]]
-    ret_code, src_address_output = run_command("ip", arg_list, False, False)
+    ret_code, src_address_output = run_command("ip", ["route", "get", addr[0]],
+                                               False, False)
     if ret_code is not 0:
         return Err("ip route get cmd failed: {}".format(src_address_output))
     # 192.168.1.1 dev wlan0  src 192.168.1.7
@@ -699,25 +693,3 @@ def get_local_hostname() -> str:
             return s[0].strip()
         except IOError:
             raise
-
-
-def translate_to_bytes(value: str) -> float:
-    """
-    This is a helper function to convert values such as 1PB into a bytes
-    :rtype : float. Value in bytes or None if failed to parse
-    """
-    k = 1024
-    if value.endswith("PB"):
-        return float(value.rstrip("PB")) * k * k * k * k * k
-    elif value.endswith("TB"):
-        return float(value.rstrip("TB")) * k * k * k * k
-    elif value.endswith("GB"):
-        return float(value.rstrip("GB")) * k * k * k
-    elif value.endswith("MB"):
-        return float(value.rstrip("MB")) * k * k
-    elif value.endswith("KB"):
-        return float(value.rstrip("KB")) * k
-    elif value.endswith("Bytes"):
-        return float(value.rstrip("BYTES"))
-    else:
-        raise ValueError
