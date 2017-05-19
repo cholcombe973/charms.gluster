@@ -277,7 +277,7 @@ class Volume(object):
                          replica_count=self.replica_count,
                          arbiter_count=self.arbiter_count,
                          disperse_count=self.disperse_count,
-                         transport=self.transport, bricks=self.bricks,
+                         transport=self.transport,bricks=self.bricks,
                          options=self.options)
 
 
