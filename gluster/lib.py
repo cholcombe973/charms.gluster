@@ -666,7 +666,9 @@ def get_local_ip() -> Result:
 
 def resolve_to_ip(address: str) -> Result:
     """
-        address: String.  Hostname to resolve to an ip address
+    
+    :param address: String.  Hostname to resolve to an ip address
+    :return: result
     """
     if address == "localhost":
         local_ip = get_local_ip()
@@ -692,32 +694,39 @@ def resolve_to_ip(address: str) -> Result:
 def get_local_hostname() -> str:
     """
     A function to get the information from /etc/hostname
+    
+    :return: string. Hostname
     """
-    with open("/etc/hostname") as f:
+    hostname_path: str = "/etc/hostname"
+    with open(hostname_path) as f:
         try:
             s = f.readlines()
             return s[0].strip()
         except IOError:
-            raise
+            raise IOError("Error opening {}".format(hostname_path))
 
 
 def translate_to_bytes(value: str) -> float:
     """
-    This is a helper function to convert values such as 1PB into a bytes
-    :rtype : float. Value in bytes or None if failed to parse
+    This is a helper function to convert values such as 1PB into a bytes.
+
+    :param value: str. Size representation to be parsed
+    :return: float. Value in bytes
     """
-    k = 1024
-    if value.endswith("PB"):
-        return float(value.rstrip("PB")) * k * k * k * k * k
-    elif value.endswith("TB"):
-        return float(value.rstrip("TB")) * k * k * k * k
-    elif value.endswith("GB"):
-        return float(value.rstrip("GB")) * k * k * k
-    elif value.endswith("MB"):
-        return float(value.rstrip("MB")) * k * k
-    elif value.endswith("KB"):
-        return float(value.rstrip("KB")) * k
-    elif value.endswith("Bytes"):
-        return float(value.rstrip("BYTES"))
+    k: int = 1024
+
+    sizes: List[str] = [
+        "KB",
+        "MB",
+        "GB",
+        "TB",
+        "PB"
+    ]
+
+    if value.endswith("Bytes"):
+        return float(value.rstrip("Bytes"))
     else:
-        raise ValueError
+        for power, size in enumerate(sizes, 1):
+            if value.endswith(size):
+                return float(value.rstrip(size)) * (k ** power)
+        raise ValueError("Cannot translate value")
