@@ -623,12 +623,12 @@ def get_local_ip() -> Result:
     while trying to
     query this information.
     """
-    ret_code, cmd_output = run_command("ip", ["route", "show", "0.0.0.0/0"],
-                                       False, False)
-    if ret_code is not 0:
-        return Err("ip route show cmd failed: {}".format(cmd_output))
+    output = run_command("ip", ["route", "show", "0.0.0.0/0"],
+                         False, False)
+    if output.is_err():
+        return Err("ip route show cmd failed: {}".format(output.value))
 
-    default_route_stdout = cmd_output
+    default_route_stdout = output.value
 
     # default via 192.168.1.1 dev wlan0  proto static
     addr_regex = re.compile(r"(?P<addr>via \S+)")
@@ -639,12 +639,13 @@ def get_local_ip() -> Result:
     addr_raw = default_route_parse.group("addr")
     addr = addr_raw.split(" ")[1]
 
-    ret_code, src_address_output = run_command("ip", ["route", "get", addr[0]],
-                                               False, False)
-    if ret_code is not 0:
-        return Err("ip route get cmd failed: {}".format(src_address_output))
+    src_address_output = run_command("ip", ["route", "get", addr[0]],
+                                     False, False)
+    if src_address_output.is_err():
+        return Err(
+            "ip route get cmd failed: {}".format(src_address_output.value))
     # 192.168.1.1 dev wlan0  src 192.168.1.7
-    local_address_stdout = src_address_output
+    local_address_stdout = src_address_output.value
     src_regex = re.compile(r"(?P<src>src \S+)")
     capture_output = src_regex.search(local_address_stdout)
     if capture_output is None:
@@ -660,7 +661,7 @@ def get_local_ip() -> Result:
 
 def resolve_to_ip(address: str) -> Result:
     """
-    
+    Resolves an dns address to an ip address.  Relies on dig
     :param address: String.  Hostname to resolve to an ip address
     :return: result
     """
@@ -668,16 +669,19 @@ def resolve_to_ip(address: str) -> Result:
         local_ip = get_local_ip()
         if local_ip.is_err():
             return Err(local_ip.value)
-        # log("hostname is localhost. Resolving to local ip ".format(local_ip))
-        return Ok(local_ip.value)
+        try:
+            ip_addr = ip_address(local_ip.value)
+            return Ok(ip_addr)
+        except ValueError:
+            return Err("failed to parse ip address: {}".format(local_ip.value))
 
     arg_list = ["+short", address.strip()]
-    ret_code, output = run_command("dig", arg_list, False, False)
+    output = run_command("dig", arg_list, False, False)
 
-    if ret_code is not 0:
-        return Err("dig cmd failed with error:{}".format(output))
+    if output.is_err():
+        return Err("dig cmd failed with error:{}".format(output.value))
     # Remove the trailing . and newline
-    trimmed = output.strip().rstrip(".")
+    trimmed = output.value.strip().rstrip(".")
     try:
         ip_addr = ip_address(trimmed)
         return Ok(ip_addr)
@@ -688,10 +692,9 @@ def resolve_to_ip(address: str) -> Result:
 def get_local_hostname() -> str:
     """
     A function to get the information from /etc/hostname
-    
     :return: string. Hostname
     """
-    hostname_path: str = "/etc/hostname"
+    hostname_path = "/etc/hostname"
     with open(hostname_path) as f:
         try:
             s = f.readlines()
@@ -707,9 +710,9 @@ def translate_to_bytes(value: str) -> float:
     :param value: str. Size representation to be parsed
     :return: float. Value in bytes
     """
-    k: int = 1024
+    k = 1024
 
-    sizes: List[str] = [
+    sizes = [
         "KB",
         "MB",
         "GB",

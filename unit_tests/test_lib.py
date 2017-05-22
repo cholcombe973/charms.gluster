@@ -15,29 +15,57 @@
 import mock
 import unittest
 from gluster import lib
+from ipaddress import ip_address
+from result import Ok
 
 
 class TestResolveToIp(unittest.TestCase):
-    def setUp(self):
-        pass
+    @mock.patch("gluster.lib.run_command")
+    @mock.patch("gluster.lib.ip_address")
+    def test(self, _ip_address, _run_command):
+        _run_command.return_value = Ok("172.217.3.206\n")
+        _ip_address.return_value = ip_address("172.217.3.206")
+        result = lib.resolve_to_ip("google.com")
+        _ip_address.assert_called_with("172.217.3.206")
+        self.assertTrue(result.is_ok())
+        self.assertTrue(result.value == ip_address("172.217.3.206"))
 
-    @mock.patch("get_local_ip")
-    def test(self):
-        # Mock get_local_ip and assert return.
-        pass
+    @mock.patch("gluster.lib.get_local_ip")
+    def testLocalhost(self, _get_local_ip):
+        _get_local_ip.return_value = Ok("192.168.1.2")
+        result = lib.resolve_to_ip("localhost")
+        self.assertTrue(result.is_ok())
+        self.assertTrue(result.value == ip_address("192.168.1.2"))
 
-    def tearDown(self):
-        pass
+
+class TestGetLocalIp(unittest.TestCase):
+    @staticmethod
+    def run_command_side_effect(*args):
+        print("args: {}".format(args))
+        if args[1][1] == "show":
+            return Ok(
+                "default via 192.168.1.1 dev eth1  proto static  metric 100")
+        elif args[1][1] == "get":
+            return Ok("192.168.1.1 dev eth1  src 192.168.1.6 \n    cache \n")
+
+    @mock.patch("gluster.lib.run_command")
+    def testGetLocalIp(self, _run_command):
+        _run_command.side_effect = self.run_command_side_effect
+        result = lib.get_local_ip()
+        self.assertTrue(result.is_ok())
+        self.assertTrue(result.value == ip_address("192.168.1.6"))
 
 
 class TestGetLocalHostName(unittest.TestCase):
     def setUp(self):
         pass
 
-    @mock.patch("open")
-    def test(self):
+    @mock.patch('builtins.open', mock.mock_open(read_data='1'))
+    def test(self, _open):
         # Mock the /etc/hostnames file and assert return.
-        pass
+        _open.return_value = "server001"
+        return_value = lib.get_local_hostname()
+        self.assertTrue(return_value == "server001")
 
     def tearDown(self):
         pass

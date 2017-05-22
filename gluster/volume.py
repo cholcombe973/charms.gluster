@@ -277,7 +277,7 @@ class Volume(object):
                          replica_count=self.replica_count,
                          arbiter_count=self.arbiter_count,
                          disperse_count=self.disperse_count,
-                         transport=self.transport,bricks=self.bricks,
+                         transport=self.transport, bricks=self.bricks,
                          options=self.options)
 
 
@@ -579,14 +579,16 @@ def volume_enable_quotas(volume: str) -> Result:
     return run_command("gluster", arg_list, True, False)
 
 
-def volume_quotas_enabled(volume: str):
+def volume_quotas_enabled(volume: str) -> bool:
     """
      Check if quotas are already enabled on a volume
     :return: bool.  True/False if quotas are enabled
     :raises: GlusterError if the command fails to run
     """
     vol_info = volume_info(volume)
-    for vol in vol_info:
+    if vol_info.is_err():
+        raise GlusterError(message=vol_info.value)
+    for vol in vol_info.value:
         if vol.name == volume:
             quota = vol.options.get("features.quota")
             if quota is None:
@@ -660,7 +662,7 @@ def ok_to_remove(volume: str, brick: Brick) -> Result:
     if output.is_err():
         return Err("vol status cmd failed with error: {}".format(output.value))
 
-    parse_volume_status(output)
+    parse_volume_status(output.value)
 
     # The redundancy requirement is needed here.
     # The code needs to understand what

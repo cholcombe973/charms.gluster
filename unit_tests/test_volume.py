@@ -83,8 +83,8 @@ class Test(unittest.TestCase):
             lines = xml_output.readlines()
             result = volume.parse_volume_status("".join(lines))
             self.assertTrue(result.is_ok())
-            for status_item in result.value:
-                print("volume status item: {}".format(status_item))
+            #for status_item in result.value:
+                #print("volume status item: {}".format(status_item))
 
     def testVolumeAddBrick(self):
         pass
